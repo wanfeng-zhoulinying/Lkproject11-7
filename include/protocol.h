@@ -2,6 +2,7 @@
 #define PROTOCOL_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 // 协议类型枚举（B负责填充）
 enum {
