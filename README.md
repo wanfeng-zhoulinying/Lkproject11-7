@@ -43,7 +43,13 @@ sudo tcpdump -i any -c 5
 
 
 ## day1
-
+日志更新：zhoulinying
+```
+开始搭建三个分支
+成员A - liuweidong 负责抓包引擎 & PCAP读写模块
+成员B - zhenzifeng 负责协议解析模块
+成员C - zhoulinying 流程统筹 & 流量统计
+```
 
 
 ## day2
