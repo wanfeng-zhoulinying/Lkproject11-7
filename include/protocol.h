@@ -2,7 +2,11 @@
 #define PROTOCOL_H
 
 #include <stdint.h>
+<<<<<<< HEAD
 #include <arpa/inet.h>
+=======
+#include <stddef.h>
+>>>>>>> main
 
 // ========== 以下为原有约定内容，完全保留 ==========
 // 协议类型枚举（B负责填充）

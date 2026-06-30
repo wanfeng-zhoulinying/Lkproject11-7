@@ -1,6 +1,10 @@
 #include "protocol.h"
+<<<<<<< HEAD
 #include <string.h>
 #include <stdio.h>
+=======
+#include <stddef.h>
+>>>>>>> main
 
 // ========== 内部协议头结构体（不对外暴露，不影响其他模块） ==========
 #define ETH_HLEN 14

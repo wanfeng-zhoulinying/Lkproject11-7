@@ -1,6 +1,6 @@
 #ifndef CAPTURE_H
 #define CAPTURE_H
-
+#include <stddef.h>
 #include <stdint.h>
 
 // 回调函数类型定义：当有数据包到达时，A会调用这个函数
