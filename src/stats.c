@@ -65,7 +65,7 @@ void stats_record(const struct parsed_packet *pkt) {
 }
 
 void stats_print(void) {
-    //printf("\033[2J\033[H");  //手动清除终端
+    printf("\033[2J\033[H");  //终端清屏
 
     printf("==============================================\n");
     printf("           SNIFFER TRAFFIC STATS              \n");
