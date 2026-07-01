@@ -24,8 +24,25 @@ void stats_clear(void) {
 void stats_record(const struct parsed_packet *pkt) {
     (void)pkt; /* 暂时未使用，抑制警告 */
     pkt_total++;
+
+    switch (pkt->proto) {
+        case PROTO_TCP:
+            pkt_tcp++;
+            break;
+        case PROTO_UDP:
+            pkt_udp++;
+            break;
+        default:
+            pkt_other++;
+            break;
+    }
 }
 
 void stats_print(void) {
-    printf("Stats: total packets = %lu\n", pkt_total);
+    printf("=== Sniffer Stats ===\n");
+    printf("Total : %lu\n", pkt_total);
+    printf("TCP   : %lu\n", pkt_tcp);
+    printf("UDP   : %lu\n", pkt_udp);
+    printf("OTHER : %lu\n", pkt_other);
+    printf("=====================\n");
 }
