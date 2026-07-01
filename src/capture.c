@@ -1,6 +1,6 @@
 /*
  * capture.c
- * 阶段 2：实现实时抓包回调，把原始包转交上层。
+ * 阶段 3：支持 BPF 过滤规则
  */
 #include "capture.h"
 
@@ -18,19 +18,39 @@ static void pcap_callback(u_char *user,
                           const struct pcap_pkthdr *h,
                           const u_char *bytes) {
     (void)user;
-    /* 把原始字节交给上层。
-     * 用 caplen（实际抓到的长度），而非 len（线上原始长度）。 */
     if (g_handler) {
         g_handler((const uint8_t *)bytes, (size_t)h->caplen);
     }
 }
 
+/* 编译并装载 BPF 过滤规则。filter 为空表示不过滤。 */
+static int apply_filter(pcap_t *handle, const char *filter, bpf_u_int32 netmask) {
+    struct bpf_program fp;
+
+    if (filter == NULL || filter[0] == '\0') {
+        return 0;  /* 没有过滤需求 */
+    }
+
+    if (pcap_compile(handle, &fp, filter, 1 /*optimize*/, netmask) == -1) {
+        fprintf(stderr, "[capture] BPF 编译失败 '%s': %s\n",
+                filter, pcap_geterr(handle));
+        return -1;
+    }
+    if (pcap_setfilter(handle, &fp) == -1) {
+        fprintf(stderr, "[capture] 设置过滤器失败: %s\n", pcap_geterr(handle));
+        pcap_freecode(&fp);
+        return -1;
+    }
+    pcap_freecode(&fp);
+    printf("[capture] 已启用过滤规则: %s\n", filter);
+    return 0;
+}
+
 void start_capture(const char *device, const char *filter, packet_handler_t handler) {
     char errbuf[PCAP_ERRBUF_SIZE];
+    bpf_u_int32 net = 0, mask = 0;
     const char *dev = device;
     pcap_if_t *alldevs = NULL;
-
-    (void)filter;  /* 阶段 2 暂不使用，后续提交实现 */
 
     /* 没指定网卡则自动选第一块 */
     if (dev == NULL || dev[0] == '\0') {
@@ -42,6 +62,12 @@ void start_capture(const char *device, const char *filter, packet_handler_t hand
         printf("[capture] 未指定网卡，自动选择: %s\n", dev);
     }
 
+    /* 取网络号与掩码（BPF 里 host/net 判断需要） */
+    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
+        net = 0;
+        mask = 0;  /* 取不到不致命 */
+    }
+
     /* 打开网卡：第 3 个参数 1 = 混杂模式 */
     pcap_t *handle = pcap_open_live(dev, SNAP_LEN, 1, READ_TIMEOUT, errbuf);
     if (handle == NULL) {
@@ -51,10 +77,14 @@ void start_capture(const char *device, const char *filter, packet_handler_t hand
     }
     if (alldevs) pcap_freealldevs(alldevs);
 
+    if (apply_filter(handle, filter, mask) == -1) {
+        pcap_close(handle);
+        return;
+    }
+
     g_handler = handler;
     printf("[capture] 开始在 %s 上抓包(混杂模式)...\n", dev);
 
-    /* count = -1：一直抓，直到出错 */
     pcap_loop(handle, -1, pcap_callback, NULL);
 
     pcap_close(handle);
