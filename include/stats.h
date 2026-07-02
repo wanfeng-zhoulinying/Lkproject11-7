@@ -12,4 +12,7 @@ void stats_record(const struct parsed_packet *pkt);
 // 打印统计结果
 void stats_print(void);
 
+/* 清零统计（可选，调试用） */
+void stats_clear(void);
+
 #endif
