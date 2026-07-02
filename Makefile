@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -std=c17 -Iinclude
+CFLAGS=-Wall -Wextra -std=gnu17 -Iinclude
 LDFLAGS=-lpcap
 
 SRCS=src/main.c src/capture.c src/protocol.c src/stats.c
