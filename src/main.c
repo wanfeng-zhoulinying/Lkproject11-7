@@ -22,24 +22,34 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 #include "capture.h"
 #include "protocol.h"
+#include "stats.h"
 
-static unsigned long g_count = 0;
+static volatile sig_atomic_t running = 1;
 
-/* 充当上层回调：把 A 抓到的每个包打印出来 */
+/* Ctrl+C 退出 */
+static void on_sigint(int sig) {
+    (void)sig;
+    running = 0;
+    stop_capture();
+}
+
+/* 充当上层回调：A 抓包 → B 解析 → C 统计 */
 static void on_packet(const uint8_t *data, size_t len) {
-    g_count++;
-
-    /*
-     * B：协议解析
-     * 在 A 的原始打印前，先解析数据包并打印解析结果
-     */
     struct parsed_packet pkt;
+
+    /* B：协议解析 */
     parse_packet(data, len, &pkt);
     print_parsed_packet(&pkt);
 
+    /* C：统计记录 */
+    stats_record(&pkt);
+
     /* A：原始字节信息（保留，便于对照链路层差异） */
+    static unsigned long g_count = 0;
+    g_count++;
     printf("[#%lu] 收到数据包，长度=%zu 字节，首字节=%02x:%02x:%02x...\n",
            g_count, len,
            len > 0 ? data[0] : 0,
@@ -50,25 +60,49 @@ static void on_packet(const uint8_t *data, size_t len) {
 int main(int argc, char *argv[]) {
     const char *dev = NULL, *filter = NULL, *readfile = NULL, *savefile = NULL;
 
+    /* ---------- A 的参数解析（完全不变） ---------- */
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-i") && i + 1 < argc) dev = argv[++i];
-        else if (!strcmp(argv[i], "-f") && i + 1 < argc) filter = argv[++i];
-        else if (!strcmp(argv[i], "-r") && i + 1 < argc) readfile = argv[++i];
-        else if (!strcmp(argv[i], "-w") && i + 1 < argc) savefile = argv[++i];
-        else {
-            fprintf(stderr, "未知参数: %s\n", argv[i]);
+        if (!strcmp(argv[i], "-i") && i + 1 < argc) {
+            dev = argv[++i];
+        } else if (!strcmp(argv[i], "-f") && i + 1 < argc) {
+            filter = argv[++i];
+        } else if (!strcmp(argv[i], "-r") && i + 1 < argc) {
+            readfile = argv[++i];
+        } else if (!strcmp(argv[i], "-w") && i + 1 < argc) {
+            savefile = argv[++i];
+        } else {
+            fprintf(stderr,
+                "用法: %s [-i 网卡] [-r pcap文件] [-f 过滤规则] [-w 保存文件]\n",
+                argv[0]);
             return 1;
         }
     }
 
-    if (savefile) capture_set_savefile(savefile);
+    /* ---------- C：初始化统计模块 ---------- */
+    stats_init();
 
+    /* ---------- A：保存 pcap（可选） ---------- */
+    if (savefile) {
+        capture_set_savefile(savefile);
+    }
+
+    signal(SIGINT, on_sigint);
+    printf("Sniffer started. Press Ctrl+C to stop.\n");
+
+    /* ---------- A：启动抓包 / 回放 ---------- */
     if (readfile) {
         replay_pcap(readfile, filter, on_packet);
     } else {
+        if (!dev) {
+            fprintf(stderr, "错误：实时抓包必须指定 -i 网卡\n");
+            return 1;
+        }
         start_capture(dev, filter, on_packet);
     }
 
-    printf("===== 本次共处理 %lu 个数据包 =====\n", g_count);
+    /* ---------- C：退出后打印最终统计 ---------- */
+    printf("\n===== Final Traffic Statistics =====\n");
+    stats_print();
+
     return 0;
 }
