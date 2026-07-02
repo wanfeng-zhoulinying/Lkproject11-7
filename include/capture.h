@@ -20,4 +20,7 @@ void replay_pcap(const char *filename, const char *filter, packet_handler_t hand
  */
 void capture_set_savefile(const char *filename);
 
+/* 停止当前抓包循环 */
+void stop_capture(void);
+
 #endif
