@@ -1,5 +1,5 @@
 /*
- * test_capture.c —— 成员 A 的独立自测程序
+ * A 部分抓包测试
  *
  * 不依赖 B 的解析和 C 的统计，单独验证抓包引擎是否工作。
  * 用法：
@@ -19,10 +19,38 @@
  * ./sniffer -r cap.pcap -w copy.pcap
  * ls -l cap.pcap copy.pcap        # 两个文件大小应该一致
  */
+ 
+/* 
+实时抓包 + 混杂模式
+sudo ./sniffer -i ens33 -f "not port 22"
+
+ICMP 解析和统计
+sudo ./sniffer -i ens33 -f "icmp"
+ping -c 4 baidu.com
+
+DNS 解析和统计
+sudo ./sniffer -i ens33 -f "udp or port 53"
+nslookup baidu.com
+
+HTTP 解析和统计
+sudo ./sniffer -i ens33 -f "tcp port 80"
+curl http://example.com
+
+PCAP 写入
+sudo ./sniffer -i ens33 -f "icmp" -w icmp.pcap
+ping -c 4 baidu.com
+停止后检查：
+ls -lh icmp.pcap
+
+展示 PCAP 回放
+./sniffer -r icmp.pcap
+展示带过滤回放：
+./sniffer -r icmp.pcap -f "icmp" */
 
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
+#include <time.h>
 #include "capture.h"
 #include "protocol.h"
 #include "stats.h"
@@ -46,6 +74,14 @@ static void on_packet(const uint8_t *data, size_t len) {
 
     /* C：统计记录 */
     stats_record(&pkt);
+
+    /* C：每秒刷新一次统计信息 */
+    static time_t last_print = 0;
+    time_t now = time(NULL);
+    if (now != last_print) {
+        stats_print();
+        last_print = now;
+    }
 
     /* A：原始字节信息（保留，便于对照链路层差异） */
     static unsigned long g_count = 0;
