@@ -1,6 +1,6 @@
 /*
  * capture.c
- * 阶段 4：抓到的包写入 .pcap 文件。
+ * 阶段 5：支持从 .pcap 文件离线回放，与实时抓包共用主循环。
  */
 #include "capture.h"
 
@@ -24,13 +24,9 @@ static void pcap_callback(u_char *user,
                           const struct pcap_pkthdr *h,
                           const u_char *bytes) {
     (void)user;
-
-    /* 1) 若开启了保存，原样写入 pcap 文件 */
     if (g_dumper) {
         pcap_dump((u_char *)g_dumper, h, bytes);
     }
-
-    /* 2) 把原始字节交给上层（B 解析 / C 统计） */
     if (g_handler) {
         g_handler((const uint8_t *)bytes, (size_t)h->caplen);
     }
@@ -57,6 +53,31 @@ static int apply_filter(pcap_t *handle, const char *filter, bpf_u_int32 netmask)
     pcap_freecode(&fp);
     printf("[capture] 已启用过滤规则: %s\n", filter);
     return 0;
+}
+
+/* 实时 / 离线 共用的主循环：打开保存文件 -> 抓包 -> 清理 */
+static void run_loop(pcap_t *handle, packet_handler_t handler) {
+    g_handler = handler;
+
+    if (g_savefile) {
+        g_dumper = pcap_dump_open(handle, g_savefile);
+        if (!g_dumper) {
+            fprintf(stderr, "[capture] 无法创建保存文件 '%s': %s\n",
+                    g_savefile, pcap_geterr(handle));
+        } else {
+            printf("[capture] 抓到的包将保存到: %s\n", g_savefile);
+        }
+    }
+
+    pcap_loop(handle, -1, pcap_callback, NULL);
+
+    if (g_dumper) {
+        pcap_dump_flush(g_dumper);
+        pcap_dump_close(g_dumper);
+        g_dumper = NULL;
+    }
+    pcap_close(handle);
+    g_handler = NULL;
 }
 
 void start_capture(const char *device, const char *filter, packet_handler_t handler) {
@@ -92,28 +113,27 @@ void start_capture(const char *device, const char *filter, packet_handler_t hand
         return;
     }
 
-    /* 需要保存时，按句柄的链路类型创建 dumper */
-    if (g_savefile) {
-        g_dumper = pcap_dump_open(handle, g_savefile);
-        if (!g_dumper) {
-            fprintf(stderr, "[capture] 无法创建保存文件 '%s': %s\n",
-                    g_savefile, pcap_geterr(handle));
-        } else {
-            printf("[capture] 抓到的包将保存到: %s\n", g_savefile);
-        }
-    }
-
-    g_handler = handler;
     printf("[capture] 开始在 %s 上抓包(混杂模式)...\n", dev);
-
-    pcap_loop(handle, -1, pcap_callback, NULL);
-
-    if (g_dumper) {
-        pcap_dump_flush(g_dumper);
-        pcap_dump_close(g_dumper);
-        g_dumper = NULL;
-    }
-    pcap_close(handle);
-    g_handler = NULL;
+    run_loop(handle, handler);
     printf("[capture] 抓包结束。\n");
+}
+
+void replay_pcap(const char *filename, const char *filter, packet_handler_t handler) {
+    char errbuf[PCAP_ERRBUF_SIZE];
+
+    pcap_t *handle = pcap_open_offline(filename, errbuf);
+    if (handle == NULL) {
+        fprintf(stderr, "[capture] 无法打开 pcap 文件 '%s': %s\n", filename, errbuf);
+        return;
+    }
+    printf("[capture] 回放文件: %s\n", filename);
+
+    /* 离线文件没有网络掩码，传 0 即可 */
+    if (apply_filter(handle, filter, 0) == -1) {
+        pcap_close(handle);
+        return;
+    }
+
+    run_loop(handle, handler);
+    printf("[capture] 文件回放结束。\n");
 }
