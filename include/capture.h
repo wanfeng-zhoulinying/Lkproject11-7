@@ -23,4 +23,20 @@ void capture_set_savefile(const char *filename);
 /* 停止当前抓包循环 */
 void stop_capture(void);
 
+
+/*************************************/
+struct capture_stats {
+    unsigned int recv_packets;
+    unsigned int drop_packets;
+    unsigned int if_drop_packets;
+    double drop_rate;
+};
+
+/* 获取抓包统计信息，后续由 A 基于 pcap_stats 实现 */
+int capture_get_stats(struct capture_stats *stats);
+
+/* 打印抓包统计信息 */
+void capture_print_stats(void);
+/*************************************/
+
 #endif

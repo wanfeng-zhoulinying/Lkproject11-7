@@ -175,3 +175,29 @@ void replay_pcap(const char *filename, const char *filter, packet_handler_t hand
     run_loop(handle, handler);
     printf("[capture] 文件回放结束。\n");
 }
+
+int capture_get_stats(struct capture_stats *stats) {
+    if (!stats)
+        return -1;
+
+    stats->recv_packets = 0;
+    stats->drop_packets = 0;
+    stats->if_drop_packets = 0;
+    stats->drop_rate = 0.0;
+    return 0;
+}
+
+void capture_print_stats(void) {
+    struct capture_stats stats;
+
+    if (capture_get_stats(&stats) == 0) {
+        printf("==============================================\n");
+        printf("           CAPTURE PERFORMANCE STATS          \n");
+        printf("==============================================\n");
+        printf(" Received packets : %u\n", stats.recv_packets);
+        printf(" Dropped packets  : %u\n", stats.drop_packets);
+        printf(" Interface drops  : %u\n", stats.if_drop_packets);
+        printf(" Drop rate        : %.4f%%\n", stats.drop_rate * 100.0);
+        printf("==============================================\n");
+    }
+}

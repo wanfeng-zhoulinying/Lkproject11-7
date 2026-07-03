@@ -54,8 +54,12 @@ ls -lh icmp.pcap
 #include "capture.h"
 #include "protocol.h"
 #include "stats.h"
+#include "reassembly.h"
 
 static volatile sig_atomic_t running = 1;
+static int quiet_mode = 0;
+static int enable_reassembly = 0;
+static const char *reassembly_output_dir = "http_sessions";
 
 /* Ctrl+C 退出 */
 static void on_sigint(int sig) {
@@ -137,7 +141,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* ---------- C：退出后打印最终统计 ---------- */
-    printf("\n===== Final Traffic Statistics =====\n");
+    printf("\n===== 最终流量统计 =====\n");
     stats_print();
 
     return 0;
