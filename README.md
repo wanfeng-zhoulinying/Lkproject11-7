@@ -50,14 +50,36 @@ sudo tcpdump -i any -c 5
 成员B - zhenzifeng 负责协议解析模块
 成员C - zhoulinying 流程统筹 & 流量统计
 ```
-
-
 ## day2
-
-
-
 ## day3
 
+## day4
+```
+基础接口已开发完毕
+接口增强任务：
+1. 高流量下丢包率统计
+2. TCP 流重组并提取 HTTP 请求/响应对
+
+新增文件
+项目结构增加：
+include/reassembly.h      // TCP 流重组模块接口，给 B 开发
+src/reassembly.c          // TCP 流重组模块空实现/初始实现
+
+修改文件：
+include/capture.h         // 增加抓包统计结构体和统计接口，给 A 实现
+src/capture.c             // 后续由 A 接入 pcap_stats
+main.c                      //加入 include/reassembly.h
+Makefile                  // 加入 src/reassembly.c
+
+分工：
+B 负责的 TCP 流重组模块，后续就在 reassembly_record() 里实现 TCP seq 排序和 HTTP 请求/响应提取。
+include/reassembly.h
+src/reassembly.c
+
+A 负责抓包性能统计接口
+include/capture.h
+src/capture.c
+```
 
 
 # 项目需求分析文档：基于 libpcap 的网络数据包捕获与协议解析工具
