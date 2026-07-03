@@ -180,6 +180,93 @@ sniffer/
 
 ## 5. 人员分工与开发任务 (A, B, C)
 
+### 进阶增强(更新：2026/7/3)
+
+| 成员 | 角色      | 负责模块                 | 核心任务                                                     | 对应文件                                                   |
+| ---- | --------- | ------------------------ | ------------------------------------------------------------ | ---------------------------------------------------------- |
+| A    | 底层/性能 | 抓包性能统计 & PCAP 支撑 | 1. 基于 `pcap_stats()` 获取抓包统计信息 2. 统计 `ps_recv / ps_drop / ps_ifdrop` 3. 计算高流量下丢包率 4. 配合性能测试，提供 HTTP 流重组测试用 PCAP 文件 | `src/capture.c` `include/capture.h`                        |
+| B    | 逻辑/解析 | TCP 流重组 & HTTP 提取   | 1. 新增 TCP 流重组模块 2. 根据源/目的 IP、端口建立 TCP 流 3. 基于 `tcp_seq` 对 TCP payload 排序和拼接 4. 提取完整 HTTP 请求/响应对 5. 输出 5 个以上真实网页请求/响应内容 | `src/reassembly.c` `include/reassembly.h` `src/protocol.c` |
+| C    | 集成/调度 | 主流程集成 & 验收测试    | 1. 搭建进阶模块接口结构 2. 将 `reassembly` 模块加入编译流程 3. 后续在主流程中接入性能统计与流重组调用 4. 组织高流量测试与结果截图 5. 整理最终验收材料 | `src/main.c` `Makefile` `docs/`                            |
+
+```
+进阶要求简化版
+A 的增强重点：
+1. 为 1 Gbps 验收提供抓包统计能力：
+   - capture_get_stats()
+   - capture_print_stats()
+   - pcap_stats()
+   - ps_recv / ps_drop / ps_ifdrop / drop_rate
+
+2. 为 HTTP 流重组提供稳定数据来源：
+   - 确保实时抓包和 PCAP 回放正常
+   - 提供 tcp port 80 的 HTTP 测试 pcap 文件
+
+B 的增强重点：
+1. 为 HTTP 流重组验收实现核心逻辑：
+   - reassembly_record()
+   - TCP flow 管理
+   - tcp_seq 排序
+   - payload 拼接
+   - HTTP 请求/响应对提取
+
+2. 为解析正确率验收配合检查：
+   - 确认 TCP seq、ack、flags、payload_len 等字段解析正确
+```
+
+```
+进阶要求详细版
+验收目标1：1 Gbps 流量下丢包率 < 1%，解析正确率 100%
+目标1可分成三块：
+1.抓包层能统计丢包
+2.主流程能跑高性能模式
+3.测试阶段能产生高流量并记录结果
+
+A 负责抓包层增强，让程序具备统计丢包率的能力：
+A 要做：
+1. 在 capture.c 中接入 pcap_stats()
+2. 获取 ps_recv、ps_drop、ps_ifdrop
+3. 计算 drop_rate
+4. 在 capture_print_stats() 中输出抓包统计结果
+5. 必要时优化 libpcap 参数，比如 buffer size
+
+C负责：
+1. 在 main.c 里调用 capture_print_stats()
+2. 增加 quiet 模式，减少逐包打印
+3. 用 iperf3 或其他工具做压测
+4. 整理截图和丢包率结果
+
+B配合保证：
+协议解析在高流量下不要崩
+解析字段正确
+
+验收目标2：HTTP 流重组提取 5 个以上请求/响应对
+目标2可分成三块：
+抓包/PCAP 提供完整 TCP 流
+协议解析提供 TCP seq、端口、payload
+流重组模块拼接并提取 HTTP
+
+A负责：
+1. 确保 capture.c 抓到完整 TCP 包
+2. 确保 PCAP 保存和回放正常
+3. 提供 http_test.pcap 给 B 离线调试
+
+B负责核心算法，负责真正完成http流重组：
+1. 在 reassembly.c 中维护 TCP 流
+2. 根据 src/dst IP + src/dst port 区分连接
+3. 根据 tcp_seq 对 TCP payload 排序
+4. 拼接连续 payload
+5. 识别 HTTP 请求和 HTTP 响应
+6. 输出请求/响应对到文件
+
+C 后续负责：
+1. main.c 接入 reassembly_init()
+2. 每个包解析后调用 reassembly_record()
+3. 程序结束时调用 reassembly_finish()
+4. 整理 5 个 HTTP 请求/响应对截图或输出文件
+```
+
+
+
 为了保证每人都有足够的代码量且模块间耦合度低，分工如下：
 
 | 成员  | 角色      | 负责模块                | 核心任务                                                     | 对应文件                              |
