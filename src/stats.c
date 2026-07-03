@@ -106,7 +106,7 @@ void stats_print(void) {
     printf("\033[2J\033[H");  //终端清屏
 
     printf("==============================================\n");
-    printf("           SNIFFER TRAFFIC STATS              \n");
+    printf("           SNIFFER 流量统计              \n");
     printf("==============================================\n");
     printf(" Total packets : %-10lu\n", pkt_total);
     printf(" Total bytes   : %-10lu\n", byte_total);
