@@ -19,10 +19,14 @@
  * ./sniffer -r cap.pcap -w copy.pcap
  * ls -l cap.pcap copy.pcap        # 两个文件大小应该一致
  */
- 
-/* 
+
+/*
 实时抓包 + 混杂模式
 sudo ./sniffer -i ens33 -f "not port 22"
+
+性能测试模式（只统计，不逐包打印详情）
+sudo ./sniffer -i ens33 -q
+sudo ./sniffer -i ens33 -f "not port 22" -q
 
 ICMP 解析和统计
 sudo ./sniffer -i ens33 -f "icmp"
@@ -58,8 +62,6 @@ ls -lh icmp.pcap
 
 static volatile sig_atomic_t running = 1;
 static int quiet_mode = 0;
-static int enable_reassembly = 0;
-static const char *reassembly_output_dir = "http_sessions";
 
 /* Ctrl+C 退出 */
 static void on_sigint(int sig) {
@@ -74,7 +76,14 @@ static void on_packet(const uint8_t *data, size_t len) {
 
     /* B：协议解析 */
     parse_packet(data, len, &pkt);
-    print_parsed_packet(&pkt);
+
+    /*
+     * 非静默模式下打印每个包的详细解析结果。
+     * 开启 -q 后，只做解析和统计，避免大量 printf 影响高流量抓包性能。
+     */
+    if (!quiet_mode) {
+        print_parsed_packet(&pkt);
+    }
 
     /* C：统计记录 */
     stats_record(&pkt);
@@ -88,19 +97,21 @@ static void on_packet(const uint8_t *data, size_t len) {
     }
 
     /* A：原始字节信息（保留，便于对照链路层差异） */
-    static unsigned long g_count = 0;
-    g_count++;
-    printf("[#%lu] 收到数据包，长度=%zu 字节，首字节=%02x:%02x:%02x...\n",
-           g_count, len,
-           len > 0 ? data[0] : 0,
-           len > 1 ? data[1] : 0,
-           len > 2 ? data[2] : 0);
+    if (!quiet_mode) {
+        static unsigned long g_count = 0;
+        g_count++;
+        printf("[#%lu] 收到数据包，长度=%zu 字节，首字节=%02x:%02x:%02x...\n",
+               g_count, len,
+               len > 0 ? data[0] : 0,
+               len > 1 ? data[1] : 0,
+               len > 2 ? data[2] : 0);
+    }
 }
 
 int main(int argc, char *argv[]) {
     const char *dev = NULL, *filter = NULL, *readfile = NULL, *savefile = NULL;
 
-    /* ---------- A 的参数解析（完全不变） ---------- */
+    /* ---------- A 的参数解析（保留原有参数，新增 -q 静默性能模式） ---------- */
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-i") && i + 1 < argc) {
             dev = argv[++i];
@@ -110,9 +121,16 @@ int main(int argc, char *argv[]) {
             readfile = argv[++i];
         } else if (!strcmp(argv[i], "-w") && i + 1 < argc) {
             savefile = argv[++i];
+        } else if (!strcmp(argv[i], "-q")) {
+            quiet_mode = 1;
         } else {
             fprintf(stderr,
-                "用法: %s [-i 网卡] [-r pcap文件] [-f 过滤规则] [-w 保存文件]\n",
+                "用法: %s [-i 网卡] [-r pcap文件] [-f 过滤规则] [-w 保存文件] [-q]\n"
+                "  -i 网卡       指定实时抓包网卡，例如 ens33\n"
+                "  -r pcap文件   从 pcap 文件回放数据包\n"
+                "  -f 过滤规则   设置 BPF 过滤规则，例如 \"icmp\"、\"tcp port 80\"\n"
+                "  -w 保存文件   将抓到的数据包保存为 pcap 文件\n"
+                "  -q            静默性能模式：只进行解析和统计，不打印每个数据包详情\n",
                 argv[0]);
             return 1;
         }
@@ -129,6 +147,10 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, on_sigint);
     printf("Sniffer started. Press Ctrl+C to stop.\n");
 
+    if (quiet_mode) {
+        printf("[main] 已启用静默性能模式：只进行解析和统计，不逐包打印详情。\n");
+    }
+
     /* ---------- A：启动抓包 / 回放 ---------- */
     if (readfile) {
         replay_pcap(readfile, filter, on_packet);
@@ -143,6 +165,10 @@ int main(int argc, char *argv[]) {
     /* ---------- C：退出后打印最终统计 ---------- */
     printf("\n===== 最终流量统计 =====\n");
     stats_print();
+
+    /* ---------- A：退出后打印抓包性能统计 ---------- */
+    printf("\n===== 抓包性能统计 =====\n");
+    capture_print_stats();
 
     return 0;
 }

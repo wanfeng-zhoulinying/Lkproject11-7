@@ -11,6 +11,10 @@
 
 #define SNAP_LEN     65535   /* 单个包最大捕获长度，足够抓全整包 */
 #define READ_TIMEOUT 1000    /* 读超时(ms) */
+#define PCAP_BUFFER_SIZE (64 * 1024 * 1024)  /* 64MB 抓包缓冲区 */
+
+static struct capture_stats g_last_stats;
+static int g_has_stats = 0;
 
 /* ---- 模块内部状态 ---- */
 static pcap_t        *g_handle  = NULL;  /* 当前 pcap 句柄        */
@@ -56,6 +60,27 @@ static void pcap_callback(u_char *user,
     }
 }
 
+static int update_capture_stats(pcap_t *handle) {
+    struct pcap_stat ps;
+
+    if (!handle)
+        return -1;
+
+    if (pcap_stats(handle, &ps) == -1) {
+        return -1;
+    }
+
+    g_last_stats.recv_packets = ps.ps_recv;
+    g_last_stats.drop_packets = ps.ps_drop;
+    g_last_stats.if_drop_packets = ps.ps_ifdrop;
+
+    unsigned int total = ps.ps_recv + ps.ps_drop;
+    g_last_stats.drop_rate = total > 0 ? (double)ps.ps_drop / total : 0.0;
+
+    g_has_stats = 1;
+    return 0;
+}
+
 /* 编译并装载 BPF 过滤规则。filter 为空表示不过滤。 */
 static int apply_filter(pcap_t *handle, const char *filter, bpf_u_int32 netmask) {
     struct bpf_program fp;
@@ -79,6 +104,33 @@ static int apply_filter(pcap_t *handle, const char *filter, bpf_u_int32 netmask)
     return 0;
 }
 
+static pcap_t *open_live_handle(const char *dev, char *errbuf) {
+    pcap_t *handle = pcap_create(dev, errbuf);
+    if (!handle)
+        return NULL;
+
+    pcap_set_snaplen(handle, SNAP_LEN);
+    pcap_set_promisc(handle, 1);
+    pcap_set_timeout(handle, READ_TIMEOUT);
+
+    if (pcap_set_buffer_size(handle, PCAP_BUFFER_SIZE) != 0) {
+        fprintf(stderr, "[capture] 警告: 设置抓包缓冲区失败，继续使用默认缓冲区\n");
+    }
+
+    int ret = pcap_activate(handle);
+    if (ret < 0) {
+        snprintf(errbuf, PCAP_ERRBUF_SIZE, "%s", pcap_geterr(handle));
+        pcap_close(handle);
+        return NULL;
+    }
+
+    if (ret > 0) {
+        fprintf(stderr, "[capture] 警告: %s\n", pcap_statustostr(ret));
+    }
+
+    return handle;
+}
+
 /* 实时 / 离线 共用的主循环：打开保存文件 -> 抓包 -> 清理 */
 static void run_loop(pcap_t *handle, packet_handler_t handler) {
     g_handle  = handle;
@@ -97,6 +149,9 @@ static void run_loop(pcap_t *handle, packet_handler_t handler) {
 
     /* count = -1：一直抓，直到出错 / 文件读完 / breakloop */
     pcap_loop(handle, -1, pcap_callback, NULL);
+
+    /* 关闭句柄前读取 libpcap 统计信息 */
+    update_capture_stats(handle);
 
     /* 收尾，释放资源 */
     if (g_dumper) {
@@ -134,7 +189,7 @@ void start_capture(const char *device, const char *filter, packet_handler_t hand
     }
 
     /* 打开网卡：第 3 个参数 1 = 混杂模式 */
-    pcap_t *handle = pcap_open_live(dev, SNAP_LEN, 1, READ_TIMEOUT, errbuf);
+    pcap_t *handle = open_live_handle(dev, errbuf);
     if (handle == NULL) {
         fprintf(stderr, "[capture] 无法打开网卡 '%s': %s\n", dev, errbuf);
         if (alldevs) pcap_freealldevs(alldevs);
@@ -180,24 +235,33 @@ int capture_get_stats(struct capture_stats *stats) {
     if (!stats)
         return -1;
 
-    stats->recv_packets = 0;
-    stats->drop_packets = 0;
-    stats->if_drop_packets = 0;
-    stats->drop_rate = 0.0;
-    return 0;
+    if (g_handle && update_capture_stats(g_handle) == 0) {
+        *stats = g_last_stats;
+        return 0;
+    }
+
+    if (g_has_stats) {
+        *stats = g_last_stats;
+        return 0;
+    }
+
+    return -1;
 }
 
 void capture_print_stats(void) {
     struct capture_stats stats;
 
-    if (capture_get_stats(&stats) == 0) {
-        printf("==============================================\n");
-        printf("           CAPTURE PERFORMANCE STATS          \n");
-        printf("==============================================\n");
-        printf(" Received packets : %u\n", stats.recv_packets);
-        printf(" Dropped packets  : %u\n", stats.drop_packets);
-        printf(" Interface drops  : %u\n", stats.if_drop_packets);
-        printf(" Drop rate        : %.4f%%\n", stats.drop_rate * 100.0);
-        printf("==============================================\n");
+    if (capture_get_stats(&stats) != 0) {
+        printf("[capture] 当前无可用抓包性能统计信息。\n");
+        return;
     }
+
+    printf("==============================================\n");
+    printf("              抓包性能统计                    \n");
+    printf("==============================================\n");
+    printf(" 接收数据包数 : %u\n", stats.recv_packets);
+    printf(" 丢弃数据包数 : %u\n", stats.drop_packets);
+    printf(" 网卡丢包数   : %u\n", stats.if_drop_packets);
+    printf(" 丢包率       : %.4f%%\n", stats.drop_rate * 100.0);
+    printf("==============================================\n");
 }
