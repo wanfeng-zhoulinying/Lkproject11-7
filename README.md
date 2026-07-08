@@ -1,6 +1,248 @@
-# 项目开发日志(你们开发有什么变动在这里写)
+# 项目测试文档
 
-## day0
+## 功能测试命令
+
+### 1. ICMP 协议解析 + 实时抓包 + BPF 过滤 + 实时统计
+
+对应要求：
+
+- 抓包引擎：`-i ens33`
+- 协议解析：Ethernet / IPv4 / ICMP
+- BPF 过滤：`-f "icmp"`
+- 流量统计：运行过程中每秒刷新，Ctrl+C 后输出最终统计
+
+sniffer 终端：
+
+```bash
+sudo ./sniffer -i ens33 -f "icmp"
+```
+
+另一个终端：
+
+```bash
+ping -c 4 baidu.com
+```
+
+观察重点：
+
+```
+最上层协议: ICMP
+源MAC / 目的MAC
+源IP / 目的IP
+ICMP packets
+```
+
+------
+
+### 2. DNS 协议解析 + UDP 协议解析 + BPF 过滤 + 实时统计
+
+对应要求：
+
+- 抓包引擎：`-i ens33`
+- 协议解析：Ethernet / IPv4 / UDP / DNS
+- BPF 过滤：`-f "udp port 53"`
+- 流量统计：统计 UDP 和 DNS 报文数、字节数
+
+sniffer 终端：
+
+```bash
+sudo ./sniffer -i ens33 -f "udp port 53"
+```
+
+另一个终端：
+
+```bash
+nslookup baidu.com
+```
+
+观察重点：
+
+```
+最上层协议: DNS
+源端口 / 目的端口: 53
+UDP packets
+DNS packets
+```
+
+------
+
+### 3. HTTP 协议解析 + TCP 协议解析 + BPF 过滤 + 实时统计
+
+对应要求：
+
+- 抓包引擎：`-i ens33`
+- 协议解析：Ethernet / IPv4 / TCP / HTTP
+- BPF 过滤：`-f "tcp port 80"`
+- 流量统计：统计 TCP 和 HTTP 报文数、字节数
+
+sniffer 终端：
+
+```bash
+sudo ./sniffer -i ens33 -f "tcp port 80"
+```
+
+另一个终端：
+
+```bash
+wget -O - http://example.com
+```
+
+如果没有 `wget`：
+
+```bash
+sudo apt install wget
+```
+
+观察重点：
+
+```
+最上层协议: HTTP 或 TCP
+源端口 / 目的端口: 80
+TCP packets
+HTTP packets
+```
+
+------
+
+### 4. 综合流量测试：TCP / UDP / DNS / HTTP 一起验证
+
+对应要求：
+
+- 抓包引擎
+- 协议解析：TCP / UDP / DNS / HTTP
+- BPF 过滤：排除 SSH 远程连接流量
+- 流量统计：多协议统计结果
+
+sniffer 终端：
+
+```bash
+sudo ./sniffer -i ens33 -f "not port 22"
+```
+
+另一个终端依次执行：
+
+```bash
+nslookup baidu.com
+wget -O - http://example.com
+```
+
+观察重点：
+
+```
+TCP packets
+UDP packets
+HTTP packets
+DNS packets
+OTHER packets
+```
+
+说明：
+
+`not port 22` 用于过滤 VSCode SSH 连接产生的流量，避免测试输出被 SSH 报文干扰。
+
+------
+
+### 5. PCAP 写入 + PCAP 回放测试
+
+对应要求：
+
+- PCAP 写入：`-w`
+- PCAP 回放：`-r`
+- BPF 过滤：保存 ICMP 流量
+- 协议解析：回放时仍能解析 ICMP 报文
+
+第一步，sniffer 终端保存抓包文件：
+
+```bash
+sudo ./sniffer -i ens33 -f "icmp" -w icmp.pcap
+```
+
+另一个终端制造 ICMP 流量：
+
+```bash
+ping -c 4 baidu.com
+```
+
+抓包结束后按 `Ctrl+C`，检查文件：
+
+```bash
+ls -lh icmp.pcap
+```
+
+第二步，回放 pcap 文件：
+
+```bash
+./sniffer -r icmp.pcap
+```
+
+观察重点：
+
+```
+最上层协议: ICMP
+Final Traffic Statistics / 最终流量统计
+```
+
+------
+
+### 6. 静默性能模式 + 1Gbps 压测
+
+对应要求：
+
+- 抓包引擎：高流量实时抓包
+- BPF 过滤：只抓 iperf3 UDP 流量
+- 协议解析：UDP 高流量解析
+- 流量统计：静默模式下统计报文数和字节数
+- 验收标准：1Gbps 流量下丢包率 < 1%，解析正确率 100%
+
+虚拟机1：
+
+终端1启动**抓包程序**：
+
+```bash
+sudo ./sniffer -i ens33 -f "udp port 5201" -q
+```
+
+另开一个终端2启动 **iperf3 服务端**：
+
+```bash
+iperf3 -s
+```
+
+虚拟机2运行**客户端**：
+
+```bash
+iperf3 -c 192.168.184.131 -u -b 250M -P 4 -t 20
+```
+
+等待20秒抓包完毕后终端1结束统计
+
+```bash
+ctrl + c
+```
+
+观察重点：
+
+```
+[SUM] sender   1000 Mbits/sec
+[SUM] receiver 993 Mbits/sec
+[SUM] UDP loss < 1%
+
+UDP packets
+OTHER packets : 0
+
+接收数据包数
+丢弃数据包数 : 0
+网卡丢包数   : 0
+丢包率       : 0.0000%
+```
+
+说明：
+
+`-q` 为静默性能模式，只解析和统计，不逐包打印详情，避免终端输出影响高流量抓包性能。
+
+
+
+# 项目开发日志
 
 日志更新:zhoulinying
 
@@ -42,7 +284,6 @@ sudo tcpdump -i any -c 5
 
 
 
-## day1
 日志更新：zhoulinying
 ```
 开始搭建三个分支
@@ -50,10 +291,6 @@ sudo tcpdump -i any -c 5
 成员B - zhenzifeng 负责协议解析模块
 成员C - zhoulinying 流程统筹 & 流量统计
 ```
-## day2
-## day3
-
-## day4
 ```
 基础接口已开发完毕
 接口增强任务：
